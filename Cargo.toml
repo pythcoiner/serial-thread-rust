@@ -1,6 +1,6 @@
 [package]
 name = "serial-thread"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["pythcoiner <pythcoiner@proton.me>"]
 edition = "2021"
 readme = "README.md"
