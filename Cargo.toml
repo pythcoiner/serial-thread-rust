@@ -1,9 +1,14 @@
 [package]
-name = "serial_thread"
-version = "0.1.0"
+name = "serial-thread"
+version = "0.0.1"
+authors = ["pythcoiner <pythcoiner@proton.me>"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Asynchronous, multithreaded serial port communication library using async channels for efficient data handling."
+repository = "https://github.com/pythcoiner/serial-thread-rust"
+license = "MIT"
+keywords = ["serial", "async", "multithreaded", "communication"]
+categories = ["asynchronous", "hardware-support"]
 
 [dependencies]
 async-channel = "2.2.0"
