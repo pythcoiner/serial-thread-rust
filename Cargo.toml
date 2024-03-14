@@ -6,6 +6,7 @@ edition = "2021"
 readme = "README.md"
 description = "Asynchronous, multithreaded serial port communication library using async channels for efficient data handling."
 repository = "https://github.com/pythcoiner/serial-thread-rust"
+documentation = "https://docs.rs/serial-thread"
 license = "MIT"
 keywords = ["serial", "async", "multithreaded", "communication"]
 categories = ["asynchronous", "hardware-support"]
