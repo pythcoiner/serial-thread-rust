@@ -1,7 +1,6 @@
-use std::backtrace::Backtrace;
 use serial_thread::async_channel::{self, unbounded, Receiver, Sender};
 use serial_thread::{Mode, SerialInterface, SerialMessage};
-use serial_thread::serial::{Baud115200, BaudRate};
+use serial_thread::serial::{BaudRate};
 
 #[tokio::main]
 async fn main() {
@@ -22,7 +21,7 @@ async fn main() {
     app_sender.send(SerialMessage::SetPort("/dev/ttyUSB0".to_string())).await.unwrap();
 
     // Select baud rate
-    app_sender.send(SerialMessage::SetBauds(Baud115200)).await.unwrap();
+    app_sender.send(SerialMessage::SetBauds(BaudRate::Baud115200)).await.unwrap();
 
     // Connect serial port
     app_sender.send(SerialMessage::Connect).await.unwrap();
@@ -30,12 +29,13 @@ async fn main() {
     // Start Sniff mode
     app_sender.send(SerialMessage::SetMode(Mode::Sniff)).await.unwrap();
 
+    // Listen for messages:
+    // First message should be SerialMessage::Connected(<true/false>)
+    // Then request of type SerialMessage::Receive([bytes])
     loop {
         if let Ok(msg) = app_receiver.try_recv() {
             println!("{:?}", msg);
         }
 
     }
-
-
 }
