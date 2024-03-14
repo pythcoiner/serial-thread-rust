@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serial-thread = { version = "0.0.1", path = "../../" }
+serial-thread = { path = "../../" }
 tokio = "1.36.0"
