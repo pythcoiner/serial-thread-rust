@@ -1,7 +1,7 @@
 use std::backtrace::Backtrace;
-use async_channel::{self, unbounded, Receiver, Sender};
+use serial_thread::async_channel::{self, unbounded, Receiver, Sender};
 use serial_thread::{Mode, SerialInterface, SerialMessage};
-use serial::{Baud115200, BaudRate};
+use serial_thread::serial::{Baud115200, BaudRate};
 
 #[tokio::main]
 async fn main() {
