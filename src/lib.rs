@@ -31,6 +31,7 @@ pub enum SerialInterfaceError {
     CannotSetTimeout,
 }
 
+/// Represents the status of the SerialInterface, indicating its current operation or state.
 #[derive(Debug, Clone)]
 pub enum Status {
     Read,
@@ -40,48 +41,132 @@ pub enum Status {
     None,
 }
 
+/// Defines the operating modes of the SerialInterface.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
+    /// Operating as a master in a master-slave configuration.
     Master,
+    /// Operating as a slave in a master-slave configuration.
     Slave,
+    /// Listening on the serial line without interfering.
     Sniff,
+    /// Stopped or inactive state.
     Stop,
 }
 
 #[derive(Debug, Clone)]
 pub enum SerialMessage {
     // Settings / Flow control (handled when Mode = Stop)
+
+    /// Request: Lists available serial ports.
+    /// Handled in 'Stop' mode. Response: Triggers `AvailablePorts` message with port list.
     ListPorts,
+
+    /// Response: Provides a list of available serial ports.
+    /// Type: Vec<String> representing port names.
     AvailablePorts(Vec<String>),
+
+    /// Request: Sets the serial port to be used.
+    /// Type: String representing the port path.
+    /// Handled in 'Stop' mode. Affects settings for subsequent `Connect` commands.
     SetPort(String),
+
+    /// Request: Sets the baud rate for the serial communication.
+    /// Type: BaudRate.
+    /// Handled in 'Stop' mode. Updates baud rate settings for the serial interface.
     SetBauds(BaudRate),
+
+    /// Request: Sets the character size for the serial communication.
+    /// Type: CharSize.
+    /// Handled in 'Stop' mode. Updates character size settings for the serial interface.
     SetCharSize(CharSize),
+
+    /// Request: Sets the parity for the serial communication.
+    /// Type: Parity.
+    /// Handled in 'Stop' mode. Updates parity settings for the serial interface.
     SetParity(Parity),
+    /// Request: Sets the stop bits for the serial communication.
+    /// Type: StopBits.
+    /// Handled in 'Stop' mode. Updates stop bits settings for the serial interface.
     SetStopBits(StopBits),
+
+    /// Request: Sets the flow control for the serial communication.
+    /// Type: FlowControl.
+    /// Handled in 'Stop' mode. Updates flow control settings for the serial interface.
     SetFlowControl(FlowControl),
+
+    /// Request: Sets the timeout for the serial communication.
+    /// Type: Duration.
+    /// Handled in all modes. Updates timeout settings for the serial interface.
     SetTimeout(Duration),
+
+    /// Request: Establishes a connection using the current serial port settings.
+    /// Handled in 'Stop' mode. Response: `Connected(true)` on success, or an `Error` message on failure.
     Connect,
+
+    /// Request: Disconnects the current serial connection.
+    /// Handled in all modes. Response: `Connected(false)` after disconnection.
     Disconnect,
 
-    // Data messages (handled when mode !Stop)
+    // Data messages (handled when mode != Stop)
+
+    /// Request: Sends data over the serial connection.
+    /// Type: Vec<u8> representing the data to be sent.
+    /// Handled when mode is not 'Stop'. Response: `DataSent` with the sent data upon successful transmission.
     Send(Vec<u8>),
+
+    /// Response: Indicates that data has been sent over the serial connection.
+    /// Type: Vec<u8> representing the sent data.
     DataSent(Vec<u8>),
+
+    /// Response: Indicates received data over the serial connection.
+    /// Type: Vec<u8> representing the received data.
     Receive(Vec<u8>),
 
     // General messages (always handled)
+
+    /// Request: Retrieves the current status of the serial interface.
+    /// Response: `Status` with the current status of the interface.
     GetStatus,
+
+    /// Response: Indicates the current status of the serial interface.
+    /// Type: Status enum.
     Status(Status),
+
+    /// Request: Retrieves the current connection status of the serial interface.
+    /// Response: `Connected` indicating whether the interface is connected.
     GetConnectionStatus,
+
+    /// Response: Indicates the current connection status of the serial interface.
+    /// Type: bool indicating connection status.
     Connected(bool),
+
+    /// Request: Sets the operating mode of the SerialInterface.
+    /// Type: Mode enum.
+    /// Changes the operating mode of the interface.
     SetMode(Mode),
+
+    /// Response: Indicates the current operating mode of the SerialInterface.
+    /// Type: Mode enum.
     Mode(Mode),
 
+    /// Response: Represents an error within the SerialInterface.
+    /// Type: SIError enum.
     Error(SIError),
+
+    /// Request: Ping message for connection testing.
+    /// Response: Generates a `Pong` message in response.
     Ping,
+
+    /// Response: Pong message as a response to a Ping.
     Pong,
 }
 
 type SIError = SerialInterfaceError;
+
+/// Represents a serial interface with various modes and functionalities.
+/// It handles serial communication, including reading, writing, and managing port settings.
+/// It operates in different modes such as Master, Slave, and Sniff.
 pub struct SerialInterface {
     path: Option<String>,
     mode: Mode,
@@ -101,6 +186,8 @@ pub struct SerialInterface {
 }
 
 impl SerialInterface {
+    /// Creates a new instance of the SerialInterface with default settings.
+    /// Returns a SerialInterface object encapsulated in a Result, with an error if initialization fails.
     pub fn new() -> Result<Self, SIError> {
         Ok(SerialInterface {
             path: None,
@@ -121,37 +208,52 @@ impl SerialInterface {
         })
     }
 
+    /// Sets the path for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn path(mut self, path: String) -> Self {
         self.path = Some(path);
         self
     }
 
+    /// Sets the baud rate for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn bauds(mut self, bauds: BaudRate) -> Self {
         self.baud_rate = bauds;
         // TODO: if self.silence is none => automatic choice
         self
     }
 
+    /// Sets the character size for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn char_size(mut self, size: CharSize) -> Self {
         self.char_size = size;
         self
     }
 
+    /// Sets the parity for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn parity(mut self, parity: Parity) -> Self {
         self.parity = parity;
         self
     }
 
+    /// Sets the parity for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn stop_bits(mut self, stop_bits: StopBits) -> Self {
         self.stop_bits = stop_bits;
         self
     }
 
+    /// Sets the flow control for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn flow_control(mut self, flow_control: FlowControl) -> Self {
         self.flow_control = flow_control;
         self
     }
 
+    /// Sets the operating mode of the SerialInterface.
+    /// The mode can be changed only when the current mode is 'Stop'.
+    /// Returns a Result with the modified instance or an error if the mode cannot be changed.
     pub fn mode(mut self, mode: Mode) -> Result<Self, SIError> {
         if let Mode::Stop = &self.mode {
             self.mode = mode;
@@ -161,26 +263,38 @@ impl SerialInterface {
         }
     }
 
+    /// Sets the Modbus ID for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn modbus_id(mut self, modbus_id: u8) -> Self {
         self.modbus_id = Some(modbus_id);
         self
     }
 
+    /// Sets the silence interval for the serial interface. Silence interval used to detect
+    /// end of modbus frame.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn silence(mut self, silence: Duration) -> Self {
         self.silence = Some(silence);
         self
     }
 
+    /// Sets the receiver channel for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn receiver(mut self, receiver: Receiver<SerialMessage>) -> Self {
         self.receiver = Some(receiver);
         self
     }
 
+    /// Sets the sender channel for the serial interface.
+    /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn sender(mut self, sender: Sender<SerialMessage>) -> Self {
         self.sender = Some(sender);
         self
     }
 
+    /// Sets the operating mode of the SerialInterface.
+    /// Can only be set when the current mode is 'Stop'.
+    /// Returns a Result with () or an error if the mode cannot be changed.
     pub fn set_mode(&mut self, m: Mode) -> Result<(), SIError> {
         if let Mode::Stop = &self.mode {
             if self.modbus_id.is_none() {
@@ -198,14 +312,18 @@ impl SerialInterface {
         }
     }
 
+    /// Retrieves the current operating mode of the SerialInterface.
     pub fn get_mode(&self) -> &Mode {
         &self.mode
     }
 
+    /// Retrieves the current status of the SerialInterface.
     pub fn get_state(&self) -> &Status {
         &self.status
     }
 
+    /// Lists available serial ports.
+    /// Returns a Result containing a list of port names or an error if ports cannot be listed.
     pub fn list_ports() -> Result<Vec<String>, SIError> {
         // TODO: get rid of serialport crate dependency
         if let Ok(ports) = available_ports() {
