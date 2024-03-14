@@ -1,3 +1,6 @@
+pub use tokio;
+pub use serial;
+pub use async_channel;
 use async_channel::{Receiver, Sender};
 use serial::{BaudRate, CharSize, FlowControl, Parity, SerialPort, StopBits, SystemPort};
 use serialport::available_ports;
