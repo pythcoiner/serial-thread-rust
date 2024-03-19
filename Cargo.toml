@@ -1,10 +1,10 @@
 [package]
 name = "serial-thread"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["pythcoiner <pythcoiner@proton.me>"]
 edition = "2021"
 readme = "README.md"
-description = "Asynchronous, multithreaded serial port communication library using async channels for efficient data handling."
+description = "Asynchronous, multithreaded serial port communication library using mpsc::cjhannels or async-channels for efficient data handling."
 repository = "https://github.com/pythcoiner/serial-thread-rust"
 documentation = "https://docs.rs/serial-thread"
 license = "MIT"
