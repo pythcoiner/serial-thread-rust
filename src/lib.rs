@@ -129,6 +129,10 @@ pub enum SerialMessage {
     /// Type: Vec<u8> representing the received data.
     Receive(Vec<u8>),
 
+    /// Response: Indicates that data has been sent over the serial connection but no response 
+    /// from the peer.
+    NoResponse,
+
     // General messages (always handled)
 
     /// Request: Retrieves the current status of the serial interface.
@@ -481,17 +485,25 @@ impl SerialInterface {
             // check timeout
             if let Some(timeout) = timeout {
                 if &Instant::now().duration_since(start) > timeout {
-                    if !buffer.is_empty() {
+                    return if !buffer.is_empty() {
                         let result = self
                             .send_message(SerialMessage::Receive(buffer.clone()));
                         self.status = Status::None;
-                        return if let Err(e) = result {
+                        if let Err(e) = result {
                             Err(e)
                         } else {
                             Ok(None)
-                        };
+                        }
+                    } else {
+                        let result = self
+                            .send_message(SerialMessage::NoResponse);
+                        self.status = Status::None;
+                        if let Err(e) = result {
+                            Err(e)
+                        } else {
+                            Ok(None)
+                        }
                     }
-                    return Ok(None);
                 }
             }
         }
@@ -570,18 +582,27 @@ impl SerialInterface {
             // check timeout
             if let Some(timeout) = timeout {
                 if &Instant::now().duration_since(start) > timeout {
-                    if !buffer.is_empty() {
+                    return if !buffer.is_empty() {
                         let result = self
                             .send_message(SerialMessage::Receive(buffer.clone()))
                             .await;
                         self.status = Status::None;
-                        return if let Err(e) = result {
+                        if let Err(e) = result {
                             Err(e)
                         } else {
                             Ok(None)
-                        };
+                        }
+                    } else {
+                        let result = self
+                            .send_message(SerialMessage::NoResponse)
+                            .await;
+                        self.status = Status::None;
+                        if let Err(e) = result {
+                            Err(e)
+                        } else {
+                            Ok(None)
+                        }
                     }
-                    return Ok(None);
                 }
             }
         }
