@@ -261,17 +261,17 @@ impl SerialInterface {
         self
     }
 
-    /// Sets the operating mode of the SerialInterface.
-    /// The mode can be changed only when the current mode is 'Stop'.
-    /// Returns a Result with the modified instance or an error if the mode cannot be changed.
-    pub fn mode(mut self, mode: Mode) -> Result<Self, SIError> {
-        if let Mode::Stop = &self.mode {
-            self.mode = mode;
-            Ok(self)
-        } else {
-            Err(SIError::StopToChangeSettings)
-        }
-    }
+    // /// Sets the operating mode of the SerialInterface.
+    // /// The mode can be changed only when the current mode is 'Stop'.
+    // /// Returns a Result with the modified instance or an error if the mode cannot be changed.
+    // pub fn mode(mut self, mode: Mode) -> Result<Self, SIError> {
+    //     if let Mode::Stop = &self.mode {
+    //         self.mode = mode;
+    //         Ok(self)
+    //     } else {
+    //         Err(SIError::StopToChangeSettings)
+    //     }
+    // }
 
     /// Sets the Modbus ID for the serial interface.
     /// Returns the modified instance of the SerialInterface for method chaining.
@@ -738,6 +738,7 @@ impl SerialInterface {
     /// Try to send a message trough self.sender
     #[cfg(not(feature = "async-channel"))]
     fn send_message(&mut self, msg: SerialMessage) -> Result<(), SIError> {
+        log::debug!("SerialInterface.send_message({:?})", msg);
         if let Some(sender) = self.sender.clone() {
             log::debug!("SerialInterface::Send {:?}", &msg);
             sender
@@ -745,6 +746,7 @@ impl SerialInterface {
                 .map_err(|_| SIError::CannotSendMessage)?;
             Ok(())
         } else {
+            log::debug!("SerialInterface::SIError::CannotSendMessage");
             Err(SIError::CannotSendMessage)
         }
     }
@@ -760,6 +762,7 @@ impl SerialInterface {
                 .map_err(|_| SIError::CannotSendMessage)?;
             Ok(())
         } else {
+            log::debug!("SerialInterface::SIError::CannotSendMessage");
             Err(SIError::CannotSendMessage)
         }
     }
@@ -773,7 +776,7 @@ impl SerialInterface {
     fn read_message(&mut self) -> Result<Option<SerialMessage>, SIError> {
         if let Some(receiver) = self.receiver.take() {
             if let Ok(message) = receiver.try_recv() {
-                log::info!("SerialInterface::Receive {:?}", &message);
+                log::debug!("SerialInterface::read_message({:?})", &message);
                 // general case, message to handle in any situation
                 match &message {
                     SerialMessage::GetConnectionStatus => {
@@ -839,6 +842,7 @@ impl SerialInterface {
                         }
                         SerialMessage::Connect => {
                             if let Err(e) = self.open() {
+                                log::debug!("Connect::{:?}", e);
                                 self.send_message(SerialMessage::Connected(false))?;
                                 self.send_message(SerialMessage::Error(e))?;
                             } else {
@@ -860,6 +864,8 @@ impl SerialInterface {
                 }
             }
             self.receiver = Some(receiver);
+        } else {
+            log::debug!("No receiver!");
         }
         Ok(None)
     }
@@ -872,7 +878,7 @@ impl SerialInterface {
     async fn read_message(&mut self) -> Result<Option<SerialMessage>, SIError> {
         if let Some(receiver) = self.receiver.clone() {
             if let Ok(message) = receiver.try_recv() {
-                log::info!("SerialInterface::Receive {:?}", &message);
+                log::info!("SerialInterface::Receive !!! {:?}", &message);
                 // general case, message to handle in any situation
                 match &message {
                     SerialMessage::GetConnectionStatus => {
@@ -940,6 +946,7 @@ impl SerialInterface {
                         }
                         SerialMessage::Connect => {
                             if let Err(e) = self.open() {
+                                log::debug!("Connect::{:?}", e);
                                 self.send_message(SerialMessage::Connected(false)).await?;
                                 self.send_message(SerialMessage::Error(e)).await?;
                             } else {
@@ -960,6 +967,8 @@ impl SerialInterface {
                     return Ok(Some(SerialMessage::Send(data)));
                 }
             }
+        }  else {
+            log::debug!("No receiver!");
         }
         Ok(None)
     }
@@ -1300,6 +1309,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     fn run_master(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_master()");
         loop {
             match self.read_message() {
                 Ok(msg) => {
@@ -1339,6 +1349,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     async fn run_master(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_master()");
         loop {
             match self.read_message().await {
                 Ok(msg) => {
@@ -1379,6 +1390,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     fn run_slave(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_slave()");
         loop {
             match self.wait_for_request() {
                 Ok(msg) => {
@@ -1397,6 +1409,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     async fn run_slave(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_slave()");
         loop {
             match self.wait_for_request().await {
                 Ok(msg) => {
@@ -1416,6 +1429,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     fn run_sniff(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_sniff()");
         loop {
             match self.listen() {
                 Ok(msg) => {
@@ -1435,6 +1449,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     async fn run_sniff(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_sniff()");
         loop {
             match self.listen().await {
                 Ok(msg) => {
@@ -1457,7 +1472,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     pub async fn start(&mut self) {
-        log::info!("SerialInterface::run()");
+        log::debug!("SerialInterface::run()");
         loop {
             sleep(Duration::from_nanos(1)).await;
             match &self.mode {
@@ -1531,7 +1546,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     pub async fn start(&mut self) {
-        log::info!("SerialInterface::run()");
+        log::debug!("SerialInterface::run()");
         loop {
             sleep(Duration::from_nanos(1)).await;
             match &self.mode {
