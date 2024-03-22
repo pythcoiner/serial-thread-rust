@@ -774,7 +774,7 @@ impl SerialInterface {
     /// - SerialMessage::Send()
     #[cfg(not(feature = "async-channel"))]
     fn read_message(&mut self) -> Result<Option<SerialMessage>, SIError> {
-        if let Some(receiver) = self.receiver.take() {
+        if let Some(receiver) = &mut self.receiver {
             if let Ok(message) = receiver.try_recv() {
                 log::debug!("SerialInterface::read_message({:?})", &message);
                 // general case, message to handle in any situation
@@ -863,7 +863,6 @@ impl SerialInterface {
                     return Ok(Some(SerialMessage::Send(data)));
                 }
             }
-            self.receiver = Some(receiver);
         } else {
             log::debug!("No receiver!");
         }
