@@ -977,7 +977,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     fn write(&mut self, data: Vec<u8>) -> Result<(), SIError> {
-        log::info!("write({:?})", data.clone());
+        log::debug!("write({:?})", data.clone());
         let port_open = self.port.is_some();
         if port_open {
             let buffer = &data[0..data.len()];
