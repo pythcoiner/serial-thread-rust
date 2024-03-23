@@ -20,7 +20,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-serial-thread = "0.0.1"
+serial-thread = "0.0.7"
 ```
 or 
 ``` 
