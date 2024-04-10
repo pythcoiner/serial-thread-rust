@@ -1730,7 +1730,7 @@ impl SerialInterface {
     pub async fn start(&mut self) {
         log::debug!("SerialInterface::run()");
         loop {
-            sleep(Duration::from_nanos(1)).await;
+            sleep(Duration::from_nanos(10)).await;
             match &self.mode {
                 Mode::Stop => {
                     let result = self.read_message();
@@ -1820,7 +1820,7 @@ impl SerialInterface {
     pub async fn start(&mut self) {
         log::debug!("SerialInterface::run()");
         loop {
-            sleep(Duration::from_nanos(1)).await;
+            sleep(Duration::from_nanos(10)).await;
             match &self.mode {
                 Mode::Stop => {
                     let result = self.read_message().await;
