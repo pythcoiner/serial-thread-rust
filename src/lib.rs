@@ -52,6 +52,9 @@ pub enum Status {
 pub enum Mode {
     /// Operating as a master in a master-slave configuration.
     Master,
+    /// Operating as a master in a master-slave configuration w/ stream reading mode (no silence,
+    /// screening read instead)
+    MasterStream,
     /// Operating as a slave in a master-slave configuration.
     Slave,
     /// Listening on the serial line without interfering.
@@ -261,18 +264,6 @@ impl SerialInterface {
         self
     }
 
-    // /// Sets the operating mode of the SerialInterface.
-    // /// The mode can be changed only when the current mode is 'Stop'.
-    // /// Returns a Result with the modified instance or an error if the mode cannot be changed.
-    // pub fn mode(mut self, mode: Mode) -> Result<Self, SIError> {
-    //     if let Mode::Stop = &self.mode {
-    //         self.mode = mode;
-    //         Ok(self)
-    //     } else {
-    //         Err(SIError::StopToChangeSettings)
-    //     }
-    // }
-
     /// Sets the Modbus ID for the serial interface.
     /// Returns the modified instance of the SerialInterface for method chaining.
     pub fn modbus_id(mut self, modbus_id: u8) -> Self {
@@ -411,8 +402,6 @@ impl SerialInterface {
             Err(SIError::PortNotOpened)
         }
     }
-
-    
     
     /// Generalist read() implementation, polling serial buffer, while not data been received on serial buffer,
     /// checking received messages on self.receiver , if Send() received, return.
@@ -608,7 +597,85 @@ impl SerialInterface {
         }
     }
 
-    
+    pub fn crc16(data: &[u8]) -> u16 {
+        let mut crc = 0xFFFF;
+        for x in data {
+            crc ^= u16::from(*x);
+            for _ in 0..8 {
+                // if we followed clippy's suggestion to move out the crc >>= 1, the condition may not be met any more
+                // the recommended action therefore makes no sense and it is better to allow this lint
+                #[allow(clippy::branches_sharing_code)]
+                if (crc & 0x0001) != 0 {
+                    crc >>= 1;
+                    crc ^= 0xA001;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        crc << 8 | crc >> 8
+    }
+
+    fn check_crc(frame: &[u8]) -> bool {
+        if frame.len() == 8 {
+            let crc = Self::crc16(&frame[..frame.len()-2]);
+            let expected_crc = [((crc & 0xff00) >> 8) as u8, (crc & 0x00ff) as u8];
+            expected_crc == frame[frame.len()-2..]
+        } else {
+            false
+        }
+
+    }
+
+    fn try_decode_buffer(buffer: Vec<u8>) -> Option<Vec<u8>> {
+        let mut window_size = 5;
+
+        while window_size <= buffer.len() {
+            for i in 0..=buffer.len() - window_size {
+                // Forward direction
+                if Self::check_crc(&buffer[i..i + window_size]) {
+                    return Some(buffer[i..i + window_size].to_vec());
+                }
+                // Reverse direction
+                let j = buffer.len() - i - window_size;
+                if Self::check_crc(&buffer[j..j + window_size]) {
+                    return Some(buffer[j..j + window_size].to_vec());
+                }
+            }
+            window_size += 1;
+        }
+        None
+    }
+
+
+    /// Stream read() implementation, buffering the read data, and `screening` until we find 
+    /// a frame w/ valid CRC
+    #[allow(unused)]
+    fn read_stream(&mut self, timeout: &Duration) -> Result<Option<SerialMessage>, SIError> {
+        self.clear_read_buffer()?;
+        let mut buffer: Vec<u8> = Vec::new();
+        let start = Instant::now();
+
+        loop {
+            let result = self.read_byte()?;
+            // receive data
+            if let Some(data) = result {
+                // log::debug!("Start receive data: {}", data);
+                self.status = Status::Receipt;
+                buffer.push(data);
+                if let Some(frame) = Self::try_decode_buffer(buffer.clone()) {
+                    return Ok(Some(SerialMessage::Receive(frame)));
+                }
+            }
+            // check timeout
+
+            if &Instant::now().duration_since(start) > timeout {
+                return Ok(Some(SerialMessage::NoResponse));
+            }
+            
+        }
+    }
+        
     
     /// Read <s> bytes of data, blocking until get the <s> number of bytes.
     #[cfg(not(feature = "async-channel"))]
@@ -1209,6 +1276,115 @@ impl SerialInterface {
             Err(SIError::SilenceMissing)
         }
     }
+
+
+    /// Master stream feature: write a request, then wait for response in stream read mode, when response received, stop listening.
+    /// Returns early if receive SerialMessage::SetMode(Mode::Stop)). Does not accept SerialMessage::Send() as
+    /// we already waiting for a response. Almost SerialMessage are handled silently by self.read_message().
+    #[cfg(not(feature = "async-channel"))]
+    #[allow(unused)]
+    pub fn write_read_stream(
+        &mut self,
+        data: Vec<u8>,
+        timeout: &Duration,
+    ) -> Result<Option<SerialMessage>, SIError> {
+        if let Some(silence) = &self.silence.clone() {
+            self.status = Status::Write;
+            if let Err(e) = self.write(data) {
+                self.status = Status::None;
+                return Err(e);
+            } else {
+                self.status = Status::WaitingResponse;
+            }
+
+            loop {
+                if let Some(msg) = self.read_stream(timeout)? {
+                    match msg {
+                        SerialMessage::Send(_data) => {
+                            // we already waiting for response cannot send request now.
+                            self.send_message(SerialMessage::Error(SIError::WaitingForResponse))?;
+                            continue;
+                        }
+                        SerialMessage::SetMode(mode) => {
+                            if mode == Mode::Stop {
+                                self.status = Status::None;
+                                return Ok(Some(SerialMessage::SetMode(Mode::Stop)));
+                            } else if mode == Mode::Slave || mode == Mode::Sniff {
+                                self.send_message(SerialMessage::Error(
+                                    SIError::StopModeBeforeChange,
+                                ))?;
+                                continue;
+                            }
+                        }
+                        _ => {
+                            continue;
+                        }
+                    }
+                } else {
+                    // Stop after silence or timeout, return
+                    self.status = Status::None;
+                    return Ok(None);
+                }
+            }
+        } else {
+            Err(SIError::SilenceMissing)
+        }
+    }
+
+    /// Master stream feature: write a request, then wait for response in stream read mode, when response received, stop listening.
+    /// Returns early if receive SerialMessage::SetMode(Mode::Stop)). Does not accept SerialMessage::Send() as
+    /// we already waiting for a response. Almost SerialMessage are handled silently by self.read_message().
+    #[cfg(feature = "async-channel")]
+    #[allow(unused)]
+    pub async fn write_read_stream(
+        &mut self,
+        data: Vec<u8>,
+        timeout: &Duration,
+    ) -> Result<Option<SerialMessage>, SIError> {
+        if let Some(silence) = &self.silence.clone() {
+            self.status = Status::Write;
+            if let Err(e) = self.write(data).await {
+                self.status = Status::None;
+                return Err(e);
+            } else {
+                self.status = Status::WaitingResponse;
+            }
+
+            loop {
+                if let Some(msg) = self.read_stream(timeout)? {
+                    match msg {
+                        SerialMessage::Send(_data) => {
+                            // we already waiting for response cannot send request now.
+                            self.send_message(SerialMessage::Error(SIError::WaitingForResponse))
+                                .await?;
+                            continue;
+                        }
+                        SerialMessage::SetMode(mode) => {
+                            if mode == Mode::Stop {
+                                self.status = Status::None;
+                                return Ok(Some(SerialMessage::SetMode(Mode::Stop)));
+                            } else if mode == Mode::Slave || mode == Mode::Sniff {
+                                self.send_message(SerialMessage::Error(
+                                    SIError::StopModeBeforeChange,
+                                ))
+                                    .await?;
+                                continue;
+                            }
+                        }
+                        _ => {
+                            continue;
+                        }
+                    }
+                } else {
+                    // Stop after silence or timeout, return
+                    self.status = Status::None;
+                    return Ok(None);
+                }
+            }
+        } else {
+            Err(SIError::SilenceMissing)
+        }
+    }
     
 
     
@@ -1383,6 +1559,88 @@ impl SerialInterface {
             }
         }
     }
+
+    
+    
+    /// Master stream loop
+    #[cfg(not(feature = "async-channel"))]
+    #[allow(unused)]
+    fn run_master_stream(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_master()");
+        loop {
+            match self.read_message() {
+                Ok(msg) => {
+                    if let Some(msg) = msg {
+                        match msg {
+                            SerialMessage::SetMode(mode) => {
+                                if mode == Mode::Stop {
+                                    return Ok(Some(Mode::Stop));
+                                }
+                            }
+                            SerialMessage::Send(data) => {
+                                match self.write_read_stream(data, &self.timeout.clone()) {
+                                    Ok(msg) => {
+                                        if let Some(SerialMessage::SetMode(Mode::Stop)) = msg {
+                                            return Ok(Some(Mode::Stop));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("{:?}", e);
+                                    }
+                                }
+                            }
+                            _ => {
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("{:?}", e);
+                }
+            }
+        }
+    }
+
+    /// Master stream loop
+    #[cfg(feature = "async-channel")]
+    #[allow(unused)]
+    async fn run_master_stream(&mut self) -> Result<Option<Mode>, SIError> {
+        log::debug!("SerialInterface::run_master()");
+        loop {
+            match self.read_message().await {
+                Ok(msg) => {
+                    if let Some(msg) = msg {
+                        match msg {
+                            SerialMessage::SetMode(mode) => {
+                                if mode == Mode::Stop {
+                                    return Ok(Some(Mode::Stop));
+                                }
+                            }
+                            SerialMessage::Send(data) => {
+                                match self.write_read_stream(data, &self.timeout.clone()).await {
+                                    Ok(msg) => {
+                                        if let Some(SerialMessage::SetMode(Mode::Stop)) = msg {
+                                            return Ok(Some(Mode::Stop));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("{:?}", e);
+                                    }
+                                }
+                            }
+                            _ => {
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("{:?}", e);
+                }
+            }
+        }
+    }
     
     
     /// Slave loop
@@ -1466,7 +1724,6 @@ impl SerialInterface {
 
     
     
-    
     /// Main loop
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
@@ -1523,6 +1780,22 @@ impl SerialInterface {
                 }
                 Mode::Sniff => {
                     let result = self.run_sniff();
+                    match result {
+                        Ok(msg) => {
+                            if let Some(Mode::Stop) = msg {
+                                log::info!("SerialInterface::switch mode to Mode::Stop");
+                                self.mode = Mode::Stop;
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("{:?}", e);
+                            log::info!("SerialInterface::switch mode to Mode::Stop");
+                            self.mode = Mode::Stop;
+                        }
+                    }
+                }
+                Mode::MasterStream => {
+                    let result = self.run_master_stream();
                     match result {
                         Ok(msg) => {
                             if let Some(Mode::Stop) = msg {
@@ -1597,6 +1870,22 @@ impl SerialInterface {
                 }
                 Mode::Sniff => {
                     let result = self.run_sniff().await;
+                    match result {
+                        Ok(msg) => {
+                            if let Some(Mode::Stop) = msg {
+                                log::info!("SerialInterface::switch mode to Mode::Stop");
+                                self.mode = Mode::Stop;
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("{:?}", e);
+                            log::info!("SerialInterface::switch mode to Mode::Stop");
+                            self.mode = Mode::Stop;
+                        }
+                    }
+                }
+                Mode::MasterStream => {
+                    let result = self.run_master_stream().await;
                     match result {
                         Ok(msg) => {
                             if let Some(Mode::Stop) = msg {
