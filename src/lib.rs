@@ -617,9 +617,11 @@ impl SerialInterface {
     }
 
     fn check_crc(frame: &[u8]) -> bool {
-        if frame.len() == 8 {
+        // log::debug!("check_crc({:?})", frame);
+        if frame.len() > 4 {
             let crc = Self::crc16(&frame[..frame.len()-2]);
             let expected_crc = [((crc & 0xff00) >> 8) as u8, (crc & 0x00ff) as u8];
+            // log::debug!("expected crc: {:?}, end_of_frame: {:?}", &expected_crc, &frame[frame.len()-2..]);
             expected_crc == frame[frame.len()-2..]
         } else {
             false
@@ -636,6 +638,10 @@ impl SerialInterface {
                 if Self::check_crc(&buffer[i..i + window_size]) {
                     return Some(buffer[i..i + window_size].to_vec());
                 }
+                
+                if buffer.len() == window_size {
+                    return None;
+                }
                 // Reverse direction
                 let j = buffer.len() - i - window_size;
                 if Self::check_crc(&buffer[j..j + window_size]) {
@@ -651,7 +657,7 @@ impl SerialInterface {
     /// Stream read() implementation, buffering the read data, and `screening` until we find 
     /// a frame w/ valid CRC
     #[allow(unused)]
-    fn read_stream(&mut self, timeout: &Duration) -> Result<Option<SerialMessage>, SIError> {
+    fn read_stream(&mut self, timeout: &Duration) -> Result<SerialMessage, SIError> {
         self.clear_read_buffer()?;
         let mut buffer: Vec<u8> = Vec::new();
         let start = Instant::now();
@@ -663,14 +669,15 @@ impl SerialInterface {
                 // log::debug!("Start receive data: {}", data);
                 self.status = Status::Receipt;
                 buffer.push(data);
-                if let Some(frame) = Self::try_decode_buffer(buffer.clone()) {
-                    return Ok(Some(SerialMessage::Receive(frame)));
+                let decoded = Self::try_decode_buffer(buffer.clone());
+                // log::debug!("try_decode_buffer({:?}) = {:?}", &buffer, decoded);
+                if let Some(frame) = decoded {
+                    return Ok(SerialMessage::Receive(frame));
                 }
             }
             // check timeout
-
             if &Instant::now().duration_since(start) > timeout {
-                return Ok(Some(SerialMessage::NoResponse));
+                return Ok(SerialMessage::NoResponse);
             }
             
         }
@@ -1287,47 +1294,25 @@ impl SerialInterface {
         &mut self,
         data: Vec<u8>,
         timeout: &Duration,
-    ) -> Result<Option<SerialMessage>, SIError> {
-        if let Some(silence) = &self.silence.clone() {
-            self.status = Status::Write;
-            if let Err(e) = self.write(data) {
-                self.status = Status::None;
-                return Err(e);
-            } else {
-                self.status = Status::WaitingResponse;
-            }
+    ) -> Result<(), SIError> {
 
-            loop {
-                if let Some(msg) = self.read_stream(timeout)? {
-                    match msg {
-                        SerialMessage::Send(_data) => {
-                            // we already waiting for response cannot send request now.
-                            self.send_message(SerialMessage::Error(SIError::WaitingForResponse))?;
-                            continue;
-                        }
-                        SerialMessage::SetMode(mode) => {
-                            if mode == Mode::Stop {
-                                self.status = Status::None;
-                                return Ok(Some(SerialMessage::SetMode(Mode::Stop)));
-                            } else if mode == Mode::Slave || mode == Mode::Sniff {
-                                self.send_message(SerialMessage::Error(
-                                    SIError::StopModeBeforeChange,
-                                ))?;
-                                continue;
-                            }
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
-                } else {
-                    // Stop after silence or timeout, return
-                    self.status = Status::None;
-                    return Ok(None);
-                }
-            }
+        self.status = Status::Write;
+        if let Err(e) = self.write(data) {
+            self.status = Status::None;
+            return Err(e);
         } else {
-            Err(SIError::SilenceMissing)
+            self.status = Status::WaitingResponse;
+        }
+        match self.read_stream(timeout) {
+            Ok(msg) => {
+                self.send_message(msg);
+                self.status = Status::None;
+                Ok(())
+            }
+            Err(e) => {
+                self.status = Status::None;
+                Err(e)
+            }
         }
     }
 
@@ -1336,56 +1321,31 @@ impl SerialInterface {
     /// we already waiting for a response. Almost SerialMessage are handled silently by self.read_message().
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
-    pub async fn write_read_stream(
+    pub async  fn write_read_stream(
         &mut self,
         data: Vec<u8>,
         timeout: &Duration,
-    ) -> Result<Option<SerialMessage>, SIError> {
-        if let Some(silence) = &self.silence.clone() {
-            self.status = Status::Write;
-            if let Err(e) = self.write(data).await {
-                self.status = Status::None;
-                return Err(e);
-            } else {
-                self.status = Status::WaitingResponse;
-            }
+    ) -> Result<(), SIError> {
 
-            loop {
-                if let Some(msg) = self.read_stream(timeout)? {
-                    match msg {
-                        SerialMessage::Send(_data) => {
-                            // we already waiting for response cannot send request now.
-                            self.send_message(SerialMessage::Error(SIError::WaitingForResponse))
-                                .await?;
-                            continue;
-                        }
-                        SerialMessage::SetMode(mode) => {
-                            if mode == Mode::Stop {
-                                self.status = Status::None;
-                                return Ok(Some(SerialMessage::SetMode(Mode::Stop)));
-                            } else if mode == Mode::Slave || mode == Mode::Sniff {
-                                self.send_message(SerialMessage::Error(
-                                    SIError::StopModeBeforeChange,
-                                ))
-                                    .await?;
-                                continue;
-                            }
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
-                } else {
-                    // Stop after silence or timeout, return
-                    self.status = Status::None;
-                    return Ok(None);
-                }
-            }
+        self.status = Status::Write;
+        if let Err(e) = self.write(data).await {
+            self.status = Status::None;
+            return Err(e);
         } else {
-            Err(SIError::SilenceMissing)
+            self.status = Status::WaitingResponse;
+        }
+        match self.read_stream(timeout) {
+            Ok(msg) => {
+                self.send_message(msg);
+                self.status = Status::None;
+                Ok(())
+            }
+            Err(e) => {
+                self.status = Status::None;
+                Err(e)
+            }
         }
     }
-    
 
     
     #[cfg(not(feature = "async-channel"))]
@@ -1566,7 +1526,7 @@ impl SerialInterface {
     #[cfg(not(feature = "async-channel"))]
     #[allow(unused)]
     fn run_master_stream(&mut self) -> Result<Option<Mode>, SIError> {
-        log::debug!("SerialInterface::run_master()");
+        log::debug!("SerialInterface::run_master_stream()");
         loop {
             match self.read_message() {
                 Ok(msg) => {
@@ -1578,15 +1538,8 @@ impl SerialInterface {
                                 }
                             }
                             SerialMessage::Send(data) => {
-                                match self.write_read_stream(data, &self.timeout.clone()) {
-                                    Ok(msg) => {
-                                        if let Some(SerialMessage::SetMode(Mode::Stop)) = msg {
-                                            return Ok(Some(Mode::Stop));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::error!("{:?}", e);
-                                    }
+                                if let Err(e) = self.write_read_stream(data, &self.timeout.clone()) {
+                                    log::error!("{:?}", e);
                                 }
                             }
                             _ => {
@@ -1606,7 +1559,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     async fn run_master_stream(&mut self) -> Result<Option<Mode>, SIError> {
-        log::debug!("SerialInterface::run_master()");
+        log::debug!("SerialInterface::run_master_stream()");
         loop {
             match self.read_message().await {
                 Ok(msg) => {
@@ -1618,15 +1571,8 @@ impl SerialInterface {
                                 }
                             }
                             SerialMessage::Send(data) => {
-                                match self.write_read_stream(data, &self.timeout.clone()).await {
-                                    Ok(msg) => {
-                                        if let Some(SerialMessage::SetMode(Mode::Stop)) = msg {
-                                            return Ok(Some(Mode::Stop));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::error!("{:?}", e);
-                                    }
+                                if let Err(e) = self.write_read_stream(data, &self.timeout.clone()).await {
+                                    log::error!("{:?}", e);
                                 }
                             }
                             _ => {
@@ -1641,6 +1587,8 @@ impl SerialInterface {
             }
         }
     }
+
+  
     
     
     /// Slave loop
