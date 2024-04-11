@@ -344,7 +344,7 @@ impl SerialInterface {
                 let read = self.port.as_mut().unwrap().read(&mut buffer);
                 let ret = match read {
                     Ok(r) => {
-                        log::info!("SerialInterface::buffer clear {:?}", buffer.to_vec());
+                        log::debug!("SerialInterface::buffer clear {:?}", buffer.to_vec());
                         r
                     }
                     Err(e) => {
@@ -951,7 +951,7 @@ impl SerialInterface {
     async fn read_message(&mut self) -> Result<Option<SerialMessage>, SIError> {
         if let Some(receiver) = self.receiver.clone() {
             if let Ok(message) = receiver.try_recv() {
-                log::info!("SerialInterface::Receive !!! {:?}", &message);
+                log::debug!("SerialInterface::Receive !!! {:?}", &message);
                 // general case, message to handle in any situation
                 match &message {
                     SerialMessage::GetConnectionStatus => {
@@ -1071,7 +1071,7 @@ impl SerialInterface {
     #[cfg(feature = "async-channel")]
     #[allow(unused)]
     async fn write(&mut self, data: Vec<u8>) -> Result<(), SIError> {
-        log::info!("write({:?})", data.clone());
+        log::debug!("write({:?})", data.clone());
         let port_open = self.port.is_some();
         if port_open {
             let buffer = &data[0..data.len()];
